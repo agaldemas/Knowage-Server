@@ -14,7 +14,8 @@
 
 		var ms = this; //mapServices
 
-		ms.setUpGeoJSONFeature = function(currFeature, config, row, configColumns, values) {
+		ms.setUpGeoJSONFeature = function(currFeature, config, row, configColumns, values, isSimpleMarker) {
+			currFeature.set("isSimpleMarker", isSimpleMarker);
 			currFeature.set("parentLayer",  config.layerID);
 			currFeature.set("isWKT", false);
 			currFeature.set("isGeoJSON", true);
@@ -38,6 +39,56 @@
 					cockpitModule_mapThematizerServices.loadIndicatorMaxMinVal(config.name+"|"+ selectedMeasure, values);
 				}
 			}
+		}
+
+		// method which convert back to JSON the geoValue field
+		ms.geoFieldValueToGeoJSON = function(geoFieldValue) {
+			// to convert geoFieldValue to json 
+			// {type=Feature, geometry={type=Point, coordinates=[7.253000539,43.701089603]}}
+			// to:
+			// {"type":"Feature", "geometry":{"type":"Point", "coordinates"=[7.253000539,43.701089603]}}
+			// first test if not json
+			var jsonv = {};
+			try {
+				jsonv = JSON.parse(geoValue);
+				return jsonv;
+			} catch (err) {
+				if (geoFieldValue.includes('=') && !geoFieldValue.includes('"')) {
+					var geoValue = geoFieldValue.replace(/=/g,':');
+					geoValue = geoValue.replace(/type/g,'"type"');
+					// TODO: use regular expression instead of :
+					geoValue = geoValue.replace('Feature','"Feature"');
+
+					if (geoValue.includes('MultiPoint')) {
+						geoValue = geoValue.replace('MultiPoint','"MultiPoint"');
+					} else if (geoValue.includes('Point')) {
+						geoValue = geoValue.replace('Point','"Point"');
+					} else if (geoValue.includes('MultiLineString')) {
+						geoValue = geoValue.replace('MultiLineString','"MultiLineString"');
+					} else if (geoValue.includes('LineString')) {
+						geoValue = geoValue.replace('LineString','"LineString"');
+					} else if (geoValue.includes('LineString')) {
+						geoValue = geoValue.replace('MultiPolygon','"MultiPolygon"');
+					} else if (geoValue.includes('Polygon')) {
+						geoValue = geoValue.replace('Polygon','"Polygon"');
+					}
+
+					geoValue = geoValue.replace('geometry','"geometry"');
+					geoValue = geoValue.replace('coordinates','"coordinates"');
+					// parse as an object
+					jsonv = JSON.parse(geoValue);
+
+					// if geojson doesn't contain type:'Feature', change the object to be GeoJSON compatible for OpenLayers
+					if (geoValue.includes('type') && !geoValue.includes('Feature') && !geoValue.includes('geometry')) {
+						var obj = {'type':'Feature',
+								'geometry' : jsonv
+							};
+						//console.error('====corrected object=======================> jsonv : %o', jsonv);
+						return obj;
+					}
+					return jsonv;
+				}
+			} 		
 		}
 
 		ms.getFeaturesDetails = function(geoColumn, selectedMeasure, config, configColumns, values){
@@ -74,14 +125,23 @@
 							var feature;
 							var row = values.rows[r];
 							geoFieldValue = row[geoFieldName].trim();
+
 							if (!geoFieldConfig.properties.coordType){
 								//retrocompatibility management (just string type)
 								geoFieldConfig.properties.coordType = 'string';
 								geoFieldConfig.properties.coordFormat = 'lon lat';
 							}
+							//console.error('===========================> geoFieldValue: %s',geoFieldValue);
+
 							if (geoFieldConfig.properties.coordType == 'json'){
 
-								feature = new ol.format.GeoJSON().readFeatures(geoFieldValue, {
+								var jsonv = ms.geoFieldValueToGeoJSON(geoFieldValue);
+								//console.error('===========================> jsonv : %s', jsonv);
+
+								if (geoFieldValue.includes('LineString') || geoFieldValue.includes('Polygon')) {
+									isSimpleMarker = false;
+								}
+								feature = new ol.format.GeoJSON().readFeatures(jsonv, {
 									dataProjection: 'EPSG:4326',
 									featureProjection: 'EPSG:3857'
 								});
@@ -90,19 +150,19 @@
 									for (var i in feature) {
 										var currFeature = feature[i];
 
-										ms.setUpGeoJSONFeature(currFeature, config, row, configColumns, values);
+										ms.setUpGeoJSONFeature(currFeature, config, row, configColumns, values, isSimpleMarker);
 										ms.setUpSelectedMeasure(selectedMeasure, config, values);
 
 										featuresSource.addFeature(currFeature);
 									}
 								} else {
 
-									ms.setUpGeoJSONFeature(feature, config, row, configColumns, values);
+									ms.setUpGeoJSONFeature(feature, config, row, configColumns, values, isSimpleMarker);
 									ms.setUpSelectedMeasure(selectedMeasure, config, values);
 
 									featuresSource.addFeature(feature);
 								}
-
+								//console.error('=====getFeaturesDetails====json==================> feature :\n %o', feature);
 
 							} else if (geoFieldConfig.properties.coordType == 'wkt') {
 
@@ -135,10 +195,12 @@
 								ms.setUpSelectedMeasure(selectedMeasure, config, values);
 
 								featuresSource.addFeature(feature);
-
 							}
 						} catch(err) {
-							console.log("Error getting feature from row " + r + ". The original error was: " + err + ". Skipping to the next row...");
+							if (!geoFieldValue)
+								console.error("Error getting feature from row " + r + " spatial attribute is empty, Skipping to the next row...");
+							else
+								console.error("Error getting feature from row " + r + ". The original error was: " + err + "\n geoFieldValue :" + geoFieldValue + "\n Skipping to the next row...");
 						}
 					}
 
@@ -388,7 +450,8 @@
 							//string && json
 							if (source.getFeatures()[0].getGeometry().getType().toUpperCase() == 'POINT')
 								coord = source.getFeatures()[0].getGeometry().getCoordinates();
-							else if (source.getFeatures()[0].getGeometry().getType().toUpperCase() == 'MULTIPOLYGON')
+							else if (source.getFeatures()[0].getGeometry().getType().toUpperCase() == 'POLYGON' ||
+							source.getFeatures()[0].getGeometry().getType().toUpperCase() == 'MULTIPOLYGON')
 								coord = source.getFeatures()[0].getGeometry().getCoordinates()[0][0][0];
 							else
 								coord = source.getFeatures()[0].getGeometry().getCoordinates()[0][0];

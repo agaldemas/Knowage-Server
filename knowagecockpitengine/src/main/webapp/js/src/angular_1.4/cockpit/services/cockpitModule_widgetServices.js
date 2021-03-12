@@ -353,7 +353,7 @@ angular.module("cockpitModule").service("cockpitModule_widgetServices",function(
 				$rootScope.$broadcast("WIDGET_INITIALIZED");
 			}
 		}catch(err){
-			console.error("The init function of "+config.type+" widget is not configured",err)
+			console.error("The init function of "+config.type+" widget is not configured !! error: " + err.toString());
 		}
 
 		$timeout(function() {
