@@ -138,9 +138,9 @@
 								var jsonv = ms.geoFieldValueToGeoJSON(geoFieldValue);
 								//console.error('===========================> jsonv : %s', jsonv);
 
-								if (geoFieldValue.includes('LineString') || geoFieldValue.includes('Polygon')) {
-									isSimpleMarker = false;
-								}
+								// if (geoFieldValue.includes('LineString') || geoFieldValue.includes('Polygon')) {
+								// 	isSimpleMarker = false;
+								// }
 								feature = new ol.format.GeoJSON().readFeatures(jsonv, {
 									dataProjection: 'EPSG:4326',
 									featureProjection: 'EPSG:3857'
